@@ -1,18 +1,25 @@
+import os
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pymongo import MongoClient
 
+# Fetch environment variables
+api_id = os.getenv("API_ID")
+api_hash = os.getenv("API_HASH")
+bot_token = os.getenv("BOT_TOKEN")
+mongo_uri = os.getenv("MONGODB_URI")
+
 # Initialize MongoDB
-mongo_client = MongoClient("YOUR_MONGODB_URI")
+mongo_client = MongoClient(mongo_uri)
 db = mongo_client["telegram_bot_db"]
 collection = db["user_data"]
 
 # Initialize the bot
 app = Client(
     "forward_bot",
-    api_id="YOUR_API_ID",
-    api_hash="YOUR_API_HASH",
-    bot_token="YOUR_BOT_TOKEN"
+    api_id=api_id,
+    api_hash=api_hash,
+    bot_token=bot_token
 )
 
 # Start forwarding command handler
