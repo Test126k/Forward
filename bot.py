@@ -81,20 +81,27 @@ async def handle_response(client, message: Message):
         await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
 
         # Forward messages from the source to the destination channel
-        async for msg in client.get_chat_history(source_channel):
-            # Stop forwarding if the user sent the /stop command
-            if not forwarding_active.get(user_id, False):
-                await message.reply("Forwarding has been stopped.")
-                break
+        try:
+            # If source_channel is an invite link, join the chat
+            if "t.me/joinchat/" in source_channel:
+                await client.join_chat(source_channel)
+                source_channel = (await client.get_chat(source_channel)).id  # Get the actual chat ID after joining
             
-            try:
+            # Fetch messages from the source channel
+            async for msg in client.get_chat_history(source_channel):
+                # Stop forwarding if the user sent the /stop command
+                if not forwarding_active.get(user_id, False):
+                    await message.reply("Forwarding has been stopped.")
+                    break
+                
                 # Debugging: Log each message to see if it’s fetched correctly
                 print(f"Fetched message ID: {msg.message_id} | Date: {msg.date} | Type: {msg.media or 'text'}")
 
                 # Forward all messages using copy
                 await msg.copy(destination_channel)
-            except Exception as e:
-                print(f"Failed to forward message ID {msg.message_id}: {e}")
+        except Exception as e:
+            print(f"Error fetching messages: {e}")
+            await message.reply(f"Error: {e}")
         
         # Reset state in MongoDB
         collection.update_one({"user_id": user_id}, {"$set": {"step": None}})
