@@ -3,9 +3,9 @@ from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid
 
 # Replace with your own bot token
-api_id = "YOUR_API_ID"
-api_hash = "YOUR_API_HASH"
-bot_token = "YOUR_BOT_TOKEN"
+api_id = "26300022"
+api_hash = "def44e13defba9d104323e821955dfa3"
+bot_token = "7207796438:AAEAeEf3DWK5qEVOzihkmGw4E4SmYYWpnx8"
 
 # Initialize the bot client
 client = Client("forwarder", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
