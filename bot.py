@@ -33,6 +33,9 @@ def start_health_check_server():
 # Start HTTP server in a separate thread
 threading.Thread(target=start_health_check_server, daemon=True).start()
 
+# Global flag to control the forwarding process
+forwarding_active = {}
+
 # Start forwarding command handler
 @app.on_message(filters.command("forward") & filters.private)
 async def start_forwarding(client, message: Message):
@@ -40,6 +43,13 @@ async def start_forwarding(client, message: Message):
     # Save the initial state to MongoDB
     collection.update_one({"user_id": user_id}, {"$set": {"step": "awaiting_source_channel"}}, upsert=True)
     await message.reply("Please send me the source channel username or ID (e.g., `@source_channel`).")
+
+# Stop forwarding command handler
+@app.on_message(filters.command("stop") & filters.private)
+async def stop_forwarding(client, message: Message):
+    user_id = message.from_user.id
+    forwarding_active[user_id] = False  # Set the forwarding flag to False
+    await message.reply("Forwarding process has been stopped.")
 
 # Text message handler to process user responses
 @app.on_message(filters.private & filters.text)
@@ -62,17 +72,31 @@ async def handle_response(client, message: Message):
         destination_channel = message.text.strip()
         collection.update_one({"user_id": user_id}, {"$set": {"destination_channel": destination_channel, "step": "forwarding_messages"}})
         
+        # Set forwarding as active for this user
+        forwarding_active[user_id] = True
+
         # Get source and destination channels from MongoDB
         source_channel = user_data["source_channel"]
         
         await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
-        
+
         # Forward messages from the source to the destination channel
         async for msg in client.get_chat_history(source_channel):
+            # Stop forwarding if the user sent the /stop command
+            if not forwarding_active.get(user_id, False):
+                await message.reply("Forwarding has been stopped.")
+                break
+            
             try:
-                await msg.forward(destination_channel)
+                # Check for media types and forward them
+                if msg.media:
+                    print(f"Forwarding media message ID: {msg.message_id}")
+                    await msg.copy(destination_channel)  # Use copy for media messages
+                else:
+                    print(f"Forwarding text message ID: {msg.message_id}")
+                    await msg.forward(destination_channel)
             except Exception as e:
-                print(f"Failed to forward message: {e}")
+                print(f"Failed to forward message ID {msg.message_id}: {e}")
         
         # Reset state in MongoDB
         collection.update_one({"user_id": user_id}, {"$set": {"step": None}})
