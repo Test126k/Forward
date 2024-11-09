@@ -121,4 +121,18 @@ async def handle_response(client, message: Message):
                 # Debugging: Log each message to see if it’s fetched correctly
                 print(f"Fetched message ID: {msg.message_id} | Date: {msg.date} | Type: {msg.media or 'text'}")
 
-                # Forward all messages
+                # Forwarding the message depending on the type of message
+                if msg.text:
+                    await client.send_message(destination_channel, msg.text)
+                if msg.photo:
+                    await client.send_photo(destination_channel, msg.photo)
+                if msg.video:
+                    await client.send_video(destination_channel, msg.video)
+                if msg.audio:
+                    await client.send_audio(destination_channel, msg.audio)
+                if msg.document:
+                    await client.send_document(destination_channel, msg.document)
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            await message.reply("An error occurred while forwarding messages. Please try again later.")
