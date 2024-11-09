@@ -1,46 +1,23 @@
-import os
-import threading
-from http.server import SimpleHTTPRequestHandler, HTTPServer
+import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import Message
-from pymongo import MongoClient
+from pyrogram.errors import PeerIdInvalid
 
-# Fetch environment variables
-api_id = os.getenv("API_ID")
-api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
-mongo_uri = os.getenv("MONGODB_URI")
+# Replace with your own bot token
+api_id = "YOUR_API_ID"
+api_hash = "YOUR_API_HASH"
+bot_token = "YOUR_BOT_TOKEN"
 
-# Initialize MongoDB
-mongo_client = MongoClient(mongo_uri)
-db = mongo_client["telegram_bot_db"]
-collection = db["user_data"]
+# Initialize the bot client
+client = Client("forwarder", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
-# Initialize the bot
-app = Client(
-    "forward_bot",
-    api_id=api_id,
-    api_hash=api_hash,
-    bot_token=bot_token
-)
-
-# Start a simple HTTP server for health checks on port 8080
-def start_health_check_server():
-    server_address = ('', 8080)
-    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
-    httpd.serve_forever()
-
-# Start HTTP server in a separate thread
-threading.Thread(target=start_health_check_server, daemon=True).start()
-
-# Global flag to control the forwarding process
+# Global flag to control forwarding
 forwarding_active = {}
 
-# Function to resolve the channel ID from a username or invite link
 async def get_channel_id(client, channel_identifier):
+    """Helper function to resolve channel ID."""
     try:
         print(f"Attempting to resolve channel: {channel_identifier}")
-        
+
         # If the source is an invite link, the bot needs to join it first
         if "t.me/joinchat/" in channel_identifier:
             print(f"Attempting to join private channel using invite link: {channel_identifier}")
@@ -58,84 +35,87 @@ async def get_channel_id(client, channel_identifier):
         print(f"Error resolving channel: {e}")
         return None
 
-# Start forwarding command handler
-@app.on_message(filters.command("forward") & filters.private)
-async def start_forwarding(client, message: Message):
-    user_id = message.from_user.id
-    # Save the initial state to MongoDB
-    collection.update_one({"user_id": user_id}, {"$set": {"step": "awaiting_source_channel"}}, upsert=True)
-    await message.reply("Please send me the source channel username or ID (e.g., `@source_channel`).")
+@client.on_message(filters.command("start"))
+async def start(client, message):
+    """Handle the /start command."""
+    await message.reply("Welcome! Use /forward to start forwarding messages.")
 
-# Stop forwarding command handler
-@app.on_message(filters.command("stop") & filters.private)
-async def stop_forwarding(client, message: Message):
+@client.on_message(filters.command("forward"))
+async def forward(client, message):
+    """Handle the /forward command to start forwarding messages."""
     user_id = message.from_user.id
-    forwarding_active[user_id] = False  # Set the forwarding flag to False
-    await message.reply("Forwarding process has been stopped.")
-
-# Text message handler to process user responses
-@app.on_message(filters.private & filters.text)
-async def handle_response(client, message: Message):
-    user_id = message.from_user.id
-    user_data = collection.find_one({"user_id": user_id})
     
-    if not user_data:
+    # Ensure the bot is not already forwarding
+    if forwarding_active.get(user_id, False):
+        await message.reply("You're already forwarding messages. Use /stop to stop.")
         return
     
-    # Check the current step
-    step = user_data.get("step")
-    
-    if step == "awaiting_source_channel":
-        source_channel = message.text.strip()
-        collection.update_one({"user_id": user_id}, {"$set": {"source_channel": source_channel, "step": "awaiting_destination_channel"}})
-        await message.reply("Got it! Now send me the destination channel username or ID (e.g., `@destination_channel`).")
-    
-    elif step == "awaiting_destination_channel":
-        destination_channel = message.text.strip()
-        collection.update_one({"user_id": user_id}, {"$set": {"destination_channel": destination_channel, "step": "forwarding_messages"}})
-        
-        # Set forwarding as active for this user
-        forwarding_active[user_id] = True
+    # Ask the user for the source and destination channel
+    await message.reply("Please send the source channel (e.g., @channelusername or channel ID).")
+    source_msg = await client.listen(message.chat.id)
+    source_channel = source_msg.text.strip()
 
-        # Get source and destination channels from MongoDB
-        source_channel = user_data["source_channel"]
-        
-        # Resolve source channel ID
-        source_channel_id = await get_channel_id(client, source_channel)
-        
-        if not source_channel_id:
-            await message.reply(f"Error: Could not resolve the source channel '{source_channel}'.")
-            return
-        
-        await message.reply(f"Resolved source channel ID: {source_channel_id}. Starting to forward messages from {source_channel} to {destination_channel}...")
+    await message.reply("Now, send the destination channel (e.g., @channelusername or channel ID).")
+    dest_msg = await client.listen(message.chat.id)
+    destination_channel = dest_msg.text.strip()
 
-        # Forward messages from the source to the destination channel
-        try:
-            # Fetch messages from the source channel
-            async for msg in client.get_chat_history(source_channel_id):
-                # Stop forwarding if the user sent the /stop command
-                if not forwarding_active.get(user_id, False):
-                    await message.reply("Forwarding has been stopped.")
-                    break
-                
-                # Debugging: Log each message to see if it’s fetched correctly
-                print(f"Fetched message ID: {msg.message_id} | Date: {msg.date} | Type: {msg.media or 'text'}")
+    # Resolve source and destination channels
+    source_channel_id = await get_channel_id(client, source_channel)
+    if source_channel_id is None:
+        await message.reply(f"Could not resolve source channel: {source_channel}. Please ensure the bot has access.")
+        return
 
-                # Forwarding the message depending on the type of message
-                if msg.text:
-                    await client.send_message(destination_channel, msg.text)
-                if msg.photo:
-                    await client.send_photo(destination_channel, msg.photo)
-                if msg.video:
-                    await client.send_video(destination_channel, msg.video)
-                if msg.audio:
-                    await client.send_audio(destination_channel, msg.audio)
-                if msg.document:
-                    await client.send_document(destination_channel, msg.document)
+    destination_channel_id = await get_channel_id(client, destination_channel)
+    if destination_channel_id is None:
+        await message.reply(f"Could not resolve destination channel: {destination_channel}. Please ensure the bot has access.")
+        return
 
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            await message.reply("An error occurred while forwarding messages. Please try again later.")
+    # Set the flag to start forwarding
+    forwarding_active[user_id] = True
+    await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
 
-# Run the bot
-app.run()
+    try:
+        # Forward messages from the source channel to the destination channel
+        async for msg in client.get_chat_history(source_channel_id):
+            if not forwarding_active.get(user_id, False):
+                await message.reply("Forwarding has been stopped.")
+                break
+
+            # Forward text messages
+            if msg.text:
+                await client.send_message(destination_channel_id, msg.text)
+            # Forward photos
+            elif msg.photo:
+                await client.send_photo(destination_channel_id, msg.photo)
+            # Forward videos
+            elif msg.video:
+                await client.send_video(destination_channel_id, msg.video)
+            # Forward audio
+            elif msg.audio:
+                await client.send_audio(destination_channel_id, msg.audio)
+            # Forward documents
+            elif msg.document:
+                await client.send_document(destination_channel_id, msg.document)
+
+            # Delay between forwards to avoid hitting rate limits
+            await asyncio.sleep(1)  # Adjust as necessary to avoid rate limits
+
+    except PeerIdInvalid as e:
+        await message.reply(f"Error: {str(e)}. Please make sure the bot has access to the channels.")
+    except Exception as e:
+        await message.reply(f"An error occurred while forwarding messages: {str(e)}")
+        print(f"Error: {e}")
+
+@client.on_message(filters.command("stop"))
+async def stop_forwarding(client, message):
+    """Handle the /stop command to stop forwarding messages."""
+    user_id = message.from_user.id
+
+    if forwarding_active.get(user_id, False):
+        forwarding_active[user_id] = False
+        await message.reply("Forwarding has been stopped.")
+    else:
+        await message.reply("You're not currently forwarding any messages.")
+
+# Run the client
+client.run()
