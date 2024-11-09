@@ -36,6 +36,15 @@ threading.Thread(target=start_health_check_server, daemon=True).start()
 # Global flag to control the forwarding process
 forwarding_active = {}
 
+# Function to resolve the channel ID from a username or invite link
+async def get_channel_id(client, channel_identifier):
+    try:
+        chat = await client.resolve_peer(channel_identifier)
+        return chat.id
+    except Exception as e:
+        print(f"Error resolving channel: {e}")
+        return None
+
 # Start forwarding command handler
 @app.on_message(filters.command("forward") & filters.private)
 async def start_forwarding(client, message: Message):
@@ -78,17 +87,19 @@ async def handle_response(client, message: Message):
         # Get source and destination channels from MongoDB
         source_channel = user_data["source_channel"]
         
+        # Resolve source channel ID
+        source_channel_id = await get_channel_id(client, source_channel)
+        
+        if not source_channel_id:
+            await message.reply("Error: Could not resolve the source channel.")
+            return
+        
         await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
 
         # Forward messages from the source to the destination channel
         try:
-            # If source_channel is an invite link, join the chat
-            if "t.me/joinchat/" in source_channel:
-                await client.join_chat(source_channel)
-                source_channel = (await client.get_chat(source_channel)).id  # Get the actual chat ID after joining
-            
             # Fetch messages from the source channel
-            async for msg in client.get_chat_history(source_channel):
+            async for msg in client.get_chat_history(source_channel_id):
                 # Stop forwarding if the user sent the /stop command
                 if not forwarding_active.get(user_id, False):
                     await message.reply("Forwarding has been stopped.")
