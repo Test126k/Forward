@@ -88,13 +88,11 @@ async def handle_response(client, message: Message):
                 break
             
             try:
-                # Check for media types and forward them
-                if msg.media:
-                    print(f"Forwarding media message ID: {msg.message_id}")
-                    await msg.copy(destination_channel)  # Use copy for media messages
-                else:
-                    print(f"Forwarding text message ID: {msg.message_id}")
-                    await msg.forward(destination_channel)
+                # Debugging: Log each message to see if it’s fetched correctly
+                print(f"Fetched message ID: {msg.message_id} | Date: {msg.date} | Type: {msg.media or 'text'}")
+
+                # Forward all messages using copy
+                await msg.copy(destination_channel)
             except Exception as e:
                 print(f"Failed to forward message ID {msg.message_id}: {e}")
         
