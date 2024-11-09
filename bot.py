@@ -136,3 +136,6 @@ async def handle_response(client, message: Message):
         except Exception as e:
             print(f"An error occurred: {e}")
             await message.reply("An error occurred while forwarding messages. Please try again later.")
+
+# Run the bot
+app.run()
