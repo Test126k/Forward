@@ -39,7 +39,19 @@ forwarding_active = {}
 # Function to resolve the channel ID from a username or invite link
 async def get_channel_id(client, channel_identifier):
     try:
-        chat = await client.resolve_peer(channel_identifier)
+        print(f"Attempting to resolve channel: {channel_identifier}")
+        
+        # Check if the source is an invite link, and join first if it is
+        if "t.me/joinchat/" in channel_identifier:
+            print(f"Joining private channel using invite link: {channel_identifier}")
+            await client.join_chat(channel_identifier)  # Join the private channel
+            chat = await client.get_chat(channel_identifier)  # Get the chat after joining
+        else:
+            # For public or already known private channels, resolve by username or ID
+            print(f"Resolving peer for public or private channel: {channel_identifier}")
+            chat = await client.resolve_peer(channel_identifier)
+        
+        print(f"Resolved chat: {chat}")
         return chat.id
     except Exception as e:
         print(f"Error resolving channel: {e}")
@@ -91,10 +103,10 @@ async def handle_response(client, message: Message):
         source_channel_id = await get_channel_id(client, source_channel)
         
         if not source_channel_id:
-            await message.reply("Error: Could not resolve the source channel.")
+            await message.reply(f"Error: Could not resolve the source channel '{source_channel}'.")
             return
         
-        await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
+        await message.reply(f"Resolved source channel ID: {source_channel_id}. Starting to forward messages from {source_channel} to {destination_channel}...")
 
         # Forward messages from the source to the destination channel
         try:
