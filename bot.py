@@ -41,17 +41,18 @@ async def get_channel_id(client, channel_identifier):
     try:
         print(f"Attempting to resolve channel: {channel_identifier}")
         
-        # Check if the source is an invite link, and join first if it is
+        # If the source is an invite link, the bot needs to join it first
         if "t.me/joinchat/" in channel_identifier:
-            print(f"Joining private channel using invite link: {channel_identifier}")
-            await client.join_chat(channel_identifier)  # Join the private channel
-            chat = await client.get_chat(channel_identifier)  # Get the chat after joining
+            print(f"Attempting to join private channel using invite link: {channel_identifier}")
+            await client.join_chat(channel_identifier)  # Bot joins the channel
+            chat = await client.get_chat(channel_identifier)  # Get chat details after joining
+            print(f"Joined channel, resolved ID: {chat.id}")
         else:
-            # For public or already known private channels, resolve by username or ID
-            print(f"Resolving peer for public or private channel: {channel_identifier}")
-            chat = await client.resolve_peer(channel_identifier)
+            # Resolving a public or already accessible private channel
+            print(f"Resolving public/private channel: {channel_identifier}")
+            chat = await client.get_chat(channel_identifier)
+            print(f"Resolved channel ID: {chat.id}")
         
-        print(f"Resolved chat: {chat}")
         return chat.id
     except Exception as e:
         print(f"Error resolving channel: {e}")
@@ -120,15 +121,4 @@ async def handle_response(client, message: Message):
                 # Debugging: Log each message to see if it’s fetched correctly
                 print(f"Fetched message ID: {msg.message_id} | Date: {msg.date} | Type: {msg.media or 'text'}")
 
-                # Forward all messages using copy
-                await msg.copy(destination_channel)
-        except Exception as e:
-            print(f"Error fetching messages: {e}")
-            await message.reply(f"Error: {e}")
-        
-        # Reset state in MongoDB
-        collection.update_one({"user_id": user_id}, {"$set": {"step": None}})
-        await message.reply("Finished forwarding messages.")
-
-# Run the bot
-app.run()
+                # Forward all messages
