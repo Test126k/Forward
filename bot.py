@@ -1,4 +1,6 @@
 import os
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pymongo import MongoClient
@@ -21,6 +23,15 @@ app = Client(
     api_hash=api_hash,
     bot_token=bot_token
 )
+
+# Start a simple HTTP server for health checks on port 8080
+def start_health_check_server():
+    server_address = ('', 8080)
+    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    httpd.serve_forever()
+
+# Start HTTP server in a separate thread
+threading.Thread(target=start_health_check_server, daemon=True).start()
 
 # Start forwarding command handler
 @app.on_message(filters.command("forward") & filters.private)
