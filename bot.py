@@ -9,7 +9,7 @@ api_hash = "def44e13defba9d104323e821955dfa3"
 bot_token = "7207796438:AAEAeEf3DWK5qEVOzihkmGw4E4SmYYWpnx8"
 
 # MongoDB setup
-MONGODB_URI = "YOUR_MONGODB_URI"
+MONGODB_URI = "mongodb+srv://rohitplayer87089:rohit870@cluster0.4wt927p.mongodb.net/?retryWrites=true&w=majority"
 mongo_client = MongoClient(MONGODB_URI)
 db = mongo_client["telegram_bot_db"]
 sessions_collection = db["user_sessions"]
