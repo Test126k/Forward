@@ -1,28 +1,23 @@
 import asyncio
-from pymongo import MongoClient
 from pyrogram import Client, filters
-from pyrogram.errors import PeerIdInvalid, ChannelInvalid
+from pyrogram.errors import PeerIdInvalid, ChannelInvalid, BotMethodInvalid
 
-# Replace with your own bot token and credentials
+# Replace with your API credentials
 api_id = "26300022"
 api_hash = "def44e13defba9d104323e821955dfa3"
 bot_token = "7207796438:AAEAeEf3DWK5qEVOzihkmGw4E4SmYYWpnx8"
 
-# MongoDB setup
-MONGODB_URI = "mongodb+srv://rohitplayer87089:rohit870@cluster0.4wt927p.mongodb.net/?retryWrites=true&w=majority"
-mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client["telegram_bot_db"]
-sessions_collection = db["user_sessions"]
+client = Client("forwarder_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
-# Initialize the bot client
-client = Client("forwarder", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+# Track whether forwarding is active
+forwarding_active = False
+source_channel = None
+destination_channel = None
 
 async def get_channel_id(client, channel_identifier):
-    """Helper function to resolve channel ID."""
+    """Helper to resolve channel ID."""
     try:
-        print(f"Attempting to resolve channel: {channel_identifier}")
         chat = await client.get_chat(channel_identifier)
-        print(f"Resolved channel ID: {chat.id}")
         return chat.id
     except (PeerIdInvalid, ChannelInvalid) as e:
         print(f"Error resolving channel: {e}")
@@ -30,52 +25,26 @@ async def get_channel_id(client, channel_identifier):
 
 @client.on_message(filters.command("start"))
 async def start(client, message):
-    await message.reply("Welcome! Use /forward to start forwarding messages.")
+    await message.reply("Welcome! Use /forward to start forwarding messages and /stop to stop.")
 
 @client.on_message(filters.command("forward"))
-async def forward(client, message):
-    user_id = message.from_user.id
-    session = sessions_collection.find_one({"user_id": user_id})
+async def start_forwarding(client, message):
+    global forwarding_active, source_channel, destination_channel
 
-    if session and session.get("forwarding_active"):
-        await message.reply("You're already forwarding messages. Use /stop to stop.")
+    if forwarding_active:
+        await message.reply("Already forwarding messages. Use /stop to stop.")
         return
 
-    sessions_collection.update_one(
-        {"user_id": user_id},
-        {"$set": {"step": "awaiting_source", "forwarding_active": False}},
-        upsert=True
-    )
-    await message.reply("Please send the source channel (e.g., @channelusername or channel ID).")
+    # Prompt for source and destination channels
+    await message.reply("Send me the source channel (e.g., @channelusername or channel ID):")
+    source_response = await client.listen(message.chat.id)
+    source_channel = source_response.text.strip()
 
-@client.on_message(filters.text)
-async def handle_response(client, message):
-    user_id = message.from_user.id
-    session = sessions_collection.find_one({"user_id": user_id})
+    await message.reply("Send me the destination channel (e.g., @channelusername or channel ID):")
+    destination_response = await client.listen(message.chat.id)
+    destination_channel = destination_response.text.strip()
 
-    if session:
-        step = session.get("step")
-
-        if step == "awaiting_source":
-            sessions_collection.update_one(
-                {"user_id": user_id},
-                {"$set": {"source_channel": message.text.strip(), "step": "awaiting_destination"}}
-            )
-            await message.reply("Now, send the destination channel (e.g., @channelusername or channel ID).")
-
-        elif step == "awaiting_destination":
-            sessions_collection.update_one(
-                {"user_id": user_id},
-                {"$set": {"destination_channel": message.text.strip(), "step": "ready_to_forward", "forwarding_active": True}}
-            )
-            await start_forwarding(client, message)
-
-async def start_forwarding(client, message):
-    user_id = message.from_user.id
-    session = sessions_collection.find_one({"user_id": user_id})
-    source_channel = session["source_channel"]
-    destination_channel = session["destination_channel"]
-
+    # Resolve channels
     source_channel_id = await get_channel_id(client, source_channel)
     destination_channel_id = await get_channel_id(client, destination_channel)
 
@@ -83,34 +52,38 @@ async def start_forwarding(client, message):
         await message.reply("Could not resolve one of the channels. Please check access.")
         return
 
-    try:
-        await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
+    forwarding_active = True
+    await message.reply(f"Starting to forward messages from {source_channel} to {destination_channel}...")
 
+    try:
         async for msg in client.get_chat_history(source_channel_id):
-            if not sessions_collection.find_one({"user_id": user_id, "forwarding_active": True}):
+            if not forwarding_active:
                 await message.reply("Forwarding has been stopped.")
                 break
 
+            # Forward different message types
             if msg.text:
                 await client.send_message(destination_channel_id, msg.text)
             elif msg.photo:
                 await client.send_photo(destination_channel_id, msg.photo.file_id, caption=msg.caption)
             elif msg.video:
                 await client.send_video(destination_channel_id, msg.video.file_id, caption=msg.caption)
-            elif msg.audio:
-                await client.send_audio(destination_channel_id, msg.audio.file_id, caption=msg.caption)
             elif msg.document:
                 await client.send_document(destination_channel_id, msg.document.file_id, caption=msg.caption)
+            
+            await asyncio.sleep(1)  # Short delay to avoid rate limits
 
-            await asyncio.sleep(1)
-
+    except BotMethodInvalid:
+        await message.reply("The bot cannot access the source channel history.")
+        forwarding_active = False
     except Exception as e:
-        await message.reply(f"An error occurred: {str(e)}")
+        await message.reply(f"An error occurred: {e}")
+        forwarding_active = False
 
 @client.on_message(filters.command("stop"))
 async def stop_forwarding(client, message):
-    user_id = message.from_user.id
-    sessions_collection.update_one({"user_id": user_id}, {"$set": {"forwarding_active": False}})
+    global forwarding_active
+    forwarding_active = False
     await message.reply("Forwarding has been stopped.")
 
 client.run()
