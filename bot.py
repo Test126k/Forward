@@ -1,6 +1,7 @@
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.errors import PeerIdInvalid, ChannelInvalid, BotMethodInvalid
+from aiohttp import web
 
 # Replace with your API credentials
 api_id = "26300022"
@@ -86,4 +87,18 @@ async def stop_forwarding(client, message):
     forwarding_active = False
     await message.reply("Forwarding has been stopped.")
 
-client.run()
+# HTTP server to handle Koyeb health checks
+async def health_check(request):
+    return web.Response(text="Bot is running")
+
+def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    web.run_app(app, port=8080)
+
+# Run both the bot and web server concurrently
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.create_task(client.start())
+    loop.create_task(start_web_server())
+    loop.run_forever()
